@@ -1,176 +1,222 @@
+#define TIMER_ID 1
+#define TIMER_DELAY 16
+//#define DEBUG
+#ifdef UNICODE
+#ifdef DEBUG
+#pragma comment(linker, "/entry:wWinMainCRTStartup /subsystem:console")
+#else
+#pragma comment(linker, "/entry:wWinMainCRTStartup /subsystem:WINDOWS")
+#endif // DEBUG
+#else
+#ifdef DEBUG
+#pragma comment(linker, "/entry:WinMainCRTStartup /subsystem:console")
+#else
+#pragma comment(linker, "/entry:WinMainCRTStartup /subsystem:WINDOWS")
+#endif // DEBUG
+#endif
+
 #include <windows.h>
 
-// ìœˆë„ìš° í•¸ë“¤ ì „ì—­ ë³€ìˆ˜
-HWND g_hWnd;
+POINT startPoint = { 0 };
+POINT endPoint = { 0 };
+int isKeyPressed = 0;
 
-// ê·¸ë¦¼ ê·¸ë¦¬ê¸° ì‹œìž‘ì ê³¼ ê·¸ë¦¬ê¸° ì¤‘ì¸ì§€ ì—¬ë¶€
-POINT g_StartPoint;
-BOOL g_IsDrawing = FALSE;
+RECT rect_user = { 5, 5, 10, 10 }; // ¿ÞÂÊ »ó´Ü ÁÂÇ¥ (5, 5)¿¡¼­ ¿À¸¥ÂÊ ÇÏ´Ü ÁÂÇ¥ (10, 10)±îÁöÀÇ »ç°¢Çü
+RECT rect_target = { 50, 50, 150, 150 }; // ¿ÞÂÊ »ó´Ü ÁÂÇ¥ (50, 50)¿¡¼­ ¿À¸¥ÂÊ ÇÏ´Ü ÁÂÇ¥ (150, 150)±îÁöÀÇ »ç°¢Çü
 
-// ê·¸ë¦¼ ì´ë™ ì¤‘ì¸ì§€ ì—¬ë¶€
-BOOL g_IsMoving = FALSE;
-int g_MoveOffsetX = 0;
-int g_MoveOffsetY = 0;
+RECT text_rect = { 10, 10, 100, 20 };
+int isInside = 0;//»ç¿ë »ç°¢ÇüÀÌ ¸ñÇ¥ »ç°¢Çü ¾È¿¡ ÀÖ´ÂÁö ¿©ºÎ¸¦ ³ªÅ¸³»´Â ÇÃ·¡±×
 
-// ë§ˆì§€ë§‰ìœ¼ë¡œ ê·¸ë¦° ì‚¬ê°í˜•ì˜ ì¢Œí‘œ
-int g_LastDrawStartX = 0;
-int g_LastDrawStartY = 0;
-int g_LastDrawEndX = 0;
-int g_LastDrawEndY = 0;
+// À©µµ¿ìÀÇ ÀÌº¥Æ®¸¦ Ã³¸®ÇÏ´Â ÄÝ¹é(Callback) ÇÔ¼ö.
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	HDC hdc = GetDC(hwnd);
 
-// ë¸ŒëŸ¬ì‹œ ë³€ìˆ˜
-HBRUSH g_RedBrush;
-HBRUSH g_WhiteBrush;
+	HBRUSH hBrush_user = CreateSolidBrush(RGB(0, 0, 255));
+	HBRUSH hBrush_target = CreateSolidBrush(RGB(255, 0, 255));
+	HBRUSH hBrush_eraser = CreateSolidBrush(RGB(255, 255, 255));
+	const wchar_t* text = L"Crash!!!";
 
-// ìœˆë„ìš° í”„ë¡œì‹œì € í•¨ìˆ˜ ì„ ì–¸
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+	static BOOL isMoving = FALSE;
+	static int moveDirectionX = 0;
+	static int moveDirectionY = 0;
 
-// ìœˆë„ìš° ë“±ë¡ ë° ìƒì„± í•¨ìˆ˜
-BOOL InitializeWindow(HINSTANCE hInstance, int nCmdShow);
+	switch (uMsg)
+	{
+	case WM_KEYDOWN:
+		if (!isMoving)
+		{
+			isMoving = TRUE;
+			SetTimer(hwnd, TIMER_ID, TIMER_DELAY, NULL);
+		}
 
-// ê·¸ë¦¼ ê·¸ë¦¬ê¸° í•¨ìˆ˜
-void DrawRectangle(HDC hdc, int startX, int startY, int endX, int endY);
+		if (wParam == VK_RIGHT)
+		{
+			moveDirectionX = 1;
+			moveDirectionY = 0;
+		}
+		else if (wParam == VK_LEFT)
+		{
+			moveDirectionX = -1;
+			moveDirectionY = 0;
+		}
+		else if (wParam == VK_UP)
+		{
+			moveDirectionX = 0;
+			moveDirectionY = -1;
+		}
+		else if (wParam == VK_DOWN)
+		{
+			moveDirectionX = 0;
+			moveDirectionY = 1;
+		}
+		break;
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-    if (!InitializeWindow(hInstance, nCmdShow)) {
-        return -1;
-    }
+	case WM_KEYUP:
+		KillTimer(hwnd, TIMER_ID);
+		isMoving = FALSE;
+		break;
 
-    MSG msg;
-    ZeroMemory(&msg, sizeof(msg));
+	case WM_TIMER:
+		if (isMoving)
+		{
+			// »ç¿ëÀÚ »ç°¢ÇüÀÇ »õ·Î¿î À§Ä¡ °è»ê
+			int newLeft = rect_user.left + moveDirectionX;
+			int newRight = rect_user.right + moveDirectionX;
+			int newTop = rect_user.top + moveDirectionY;
+			int newBottom = rect_user.bottom + moveDirectionY;
 
-    while (msg.message != WM_QUIT) {
-        if (PeekMessage(&msg, g_hWnd, 0, 0, PM_REMOVE)) {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
-    }
+			// »õ À§Ä¡°¡ À©µµ¿ì °æ°è ³»¿¡ ÀÖ´ÂÁö È®ÀÎ
+			RECT windowRect;
+			GetClientRect(hwnd, &windowRect);
 
-    return 0;
+			if (newLeft >= 0 && newRight <= windowRect.right && newTop >= 0 && newBottom <= windowRect.bottom)
+			{
+				// °æ°è ³»¿¡ ÀÖÀ» ¶§¸¸ »ç¿ëÀÚ »ç°¢ÇüÀÇ À§Ä¡ ¾÷µ¥ÀÌÆ®
+				rect_user.left = newLeft;
+				rect_user.right = newRight;
+				rect_user.top = newTop;
+				rect_user.bottom = newBottom;
+
+				// »ç¿ëÀÚ »ç°¢ÇüÀÌ ¸ñÇ¥ »ç°¢Çü ³»¿¡ ÀÖ´ÂÁö È®ÀÎ
+				isInside = rect_user.top >= rect_target.top && rect_user.bottom <= rect_target.bottom &&
+					rect_user.left >= rect_target.left && rect_user.right <= rect_target.right;
+
+				// À©µµ¿ì ´Ù½Ã ±×¸®±â
+				InvalidateRect(hwnd, NULL, TRUE);
+				UpdateWindow(hwnd);
+			}
+		}
+		break;
+	case WM_PAINT:
+	{
+		PAINTSTRUCT ps;
+		HDC hdc = BeginPaint(hwnd, &ps);
+
+		FillRect(hdc, &rect_target, hBrush_target);
+		FillRect(hdc, &rect_user, hBrush_user);
+
+		if (isInside) {
+			TextOut(hdc, text_rect.left, text_rect.top, text, lstrlen(text));
+		}
+
+		EndPaint(hwnd, &ps);
+	}
+	break;
+
+	case WM_CLOSE:
+		DestroyWindow(hwnd);
+		break;
+	case WM_DESTROY:
+		PostQuitMessage(0);
+		break;
+	default:
+		return DefWindowProc(hwnd, uMsg, wParam, lParam);
+	}
+
+	DeleteObject(hBrush_user);
+	DeleteObject(hBrush_target);
+	DeleteObject(hBrush_eraser);
+	ReleaseDC(hwnd, hdc);
+
+	return S_OK;
 }
+#ifdef UNICODE
+int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPWSTR lpCmdLine, _In_ int nShowCmd)
+#else
+int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPSTR pCmdLine, _In_ int nCmdShow)
+#endif
+{
+	/* À©µµ¿ì Å¬·¡½º ¼±¾ð.*/
+	WNDCLASS wc;
+	ZeroMemory(&wc, sizeof(wc));	// ¸ðµÎ 0À¸·Î ÃÊ±âÈ­.
 
-BOOL InitializeWindow(HINSTANCE hInstance, int nCmdShow) {
-    // ìœˆë„ìš° í´ëž˜ìŠ¤ ë“±ë¡
-    WNDCLASS wc = { 0 };
-    wc.style = CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc = WindowProc;
-    wc.hInstance = hInstance;
-    wc.lpszClassName = L"MyDrawingAppClass";
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+	// À©µµ¿ì Å¬·¡½º °ª ¼³Á¤
+	wc.hInstance = hInstance;
+	wc.lpszClassName = TEXT("Computer Software");
+	wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+	wc.hCursor = LoadCursor(NULL, IDC_CROSS);
+	wc.style = CS_HREDRAW | CS_VREDRAW;
+	wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+	wc.lpfnWndProc = WindowProc;
 
-    if (!RegisterClass(&wc)) {
-        return FALSE;
-    }
+	// À©µµ¿ì Å¬·¡½º µî·Ï.
+	if (RegisterClass(&wc) == 0)
+	{
+		MessageBox(NULL, L"RegisterClass failed!", L"Error", MB_ICONERROR);
+		exit(-1);	//¿¹¿Ü
+	}
 
-    // ìœˆë„ìš° ìƒì„±
-    g_hWnd = CreateWindow(
-        L"MyDrawingAppClass", L"202207038 ê¹€ë‚¨ê·œ",
-        WS_OVERLAPPEDWINDOW & ~(WS_MAXIMIZEBOX | WS_THICKFRAME),
-        CW_USEDEFAULT, CW_USEDEFAULT, 800, 600,
-        NULL, NULL, hInstance, NULL);
+	// Window viewport ¿µ¿ª Á¶Á¤
+	RECT rect = { 150, 100, 800, 600 };
+	AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, 0);
+	int width = rect.right - rect.left;
+	int height = rect.bottom - rect.top;
 
-    if (!g_hWnd) {
-        return FALSE;
-    }
+	// À©µµ¿ì »ý¼º
+	HWND hwnd = CreateWindow(
+		wc.lpszClassName,
+		TEXT("202207038 ±è³²±Ô"),
+		WS_OVERLAPPEDWINDOW,
+		0, 0,
+		width, height,
+		NULL, NULL,
+		hInstance,
+		NULL
+	);
 
-    ShowWindow(g_hWnd, nCmdShow);
-    UpdateWindow(g_hWnd);
+	// ¿À·ù °Ë»ç.
+	if (hwnd == NULL)
+	{
+		MessageBox(NULL, L"CreateWindow failed!", L"Error", MB_ICONERROR);
+		exit(-1);
+	}
 
-    // ë¸ŒëŸ¬ì‹œ ìƒì„±
-    g_RedBrush = CreateSolidBrush(RGB(255, 0, 0));
-    g_WhiteBrush = CreateSolidBrush(RGB(255, 255, 255));
+	// Ã¢ Ç¥½Ã.
+	ShowWindow(hwnd, SW_SHOW); // Ã¢ Ç¥½Ã
+	UpdateWindow(hwnd); // ¾÷µ¥ÀÌÆ®ÇØ¾ß º¸ÀÓ. ÇÑ ½ÖÀ¸·Î ¾´´Ù°í º¸¸é µÊ.
 
-    return TRUE;
-}
 
-void DrawRectangle(HDC hdc, int startX, int startY, int endX, int endY) {
-    Rectangle(hdc, startX, startY, endX, endY);
-}
 
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    LRESULT result = 0;
+	// ¸Þ½ÃÁö Ã³¸® ·çÇÁ.
+	MSG msg;
+	ZeroMemory(&msg, sizeof(msg));
 
-    switch (uMsg) {
-    case WM_LBUTTONDOWN:
-        g_IsDrawing = TRUE;
-        g_StartPoint.x = LOWORD(lParam);
-        g_StartPoint.y = HIWORD(lParam);
-        break;
+	// ¸Þ½ÃÁö Ã³¸®.
+	while (msg.message != WM_QUIT)
+	{
+		if (GetMessage(&msg, NULL, 0, 0))
+		{
+			// ¸Þ½ÃÁö ¹ø¿ª
+			TranslateMessage(&msg);
+			// ¸Þ½ÃÁö¸¦ Ã³¸®
+			DispatchMessage(&msg);
+		}
+	}
 
-    case WM_LBUTTONUP:
-        if (g_IsDrawing) {
-            g_IsDrawing = FALSE;
-            int endX = LOWORD(lParam);
-            int endY = HIWORD(lParam);
-            HDC hdc = GetDC(hwnd);
-            SelectObject(hdc, g_WhiteBrush);
-            SetROP2(hdc, R2_WHITE);
-            DrawRectangle(hdc, g_LastDrawStartX, g_LastDrawStartY, g_LastDrawEndX, g_LastDrawEndY);
-            SetROP2(hdc, R2_COPYPEN);
-            SelectObject(hdc, g_RedBrush);
-            DrawRectangle(hdc, g_StartPoint.x, g_StartPoint.y, endX, endY);
-            ReleaseDC(hwnd, hdc);
-            g_LastDrawStartX = g_StartPoint.x;
-            g_LastDrawStartY = g_StartPoint.y;
-            g_LastDrawEndX = endX;
-            g_LastDrawEndY = endY;
-        }
-        break;
+	UnregisterClass(wc.lpszClassName, wc.hInstance);
 
-    case WM_RBUTTONDOWN:
-        if (LOWORD(lParam) >= g_LastDrawStartX && LOWORD(lParam) <= g_LastDrawEndX &&
-            HIWORD(lParam) >= g_LastDrawStartY && HIWORD(lParam) <= g_LastDrawEndY) {
-            g_IsMoving = TRUE;
-            g_MoveOffsetX = LOWORD(lParam) - g_LastDrawStartX;
-            g_MoveOffsetY = HIWORD(lParam) - g_LastDrawStartY;
-        }
-        break;
+	//Á¾·á ¸Þ½ÃÁö º¸³»±â
+	return (int)msg.wParam;
 
-    case WM_RBUTTONUP:
-        g_IsMoving = FALSE;
-        break;
-
-    case WM_MOUSEMOVE:
-        if (g_IsDrawing) {
-            int nowX = LOWORD(lParam);
-            int nowY = HIWORD(lParam);
-            HDC hdc = GetDC(hwnd);
-            SetROP2(hdc, R2_COPYPEN);
-            DrawRectangle(hdc, g_StartPoint.x, g_StartPoint.y, nowX, nowY);
-            SetROP2(hdc, R2_NOTXORPEN);
-            SelectObject(hdc, g_RedBrush);
-            DrawRectangle(hdc, g_StartPoint.x, g_StartPoint.y, nowX, nowY);
-            ReleaseDC(hwnd, hdc);
-        }
-        else if (g_IsMoving && (wParam & MK_RBUTTON)) {
-            int newX = LOWORD(lParam) - g_MoveOffsetX;
-            int newY = HIWORD(lParam) - g_MoveOffsetY;
-            int width = g_LastDrawEndX - g_LastDrawStartX;
-            int height = g_LastDrawEndY - g_LastDrawStartY;
-            HDC hdc = GetDC(hwnd);
-            SelectObject(hdc, g_WhiteBrush);
-            SetROP2(hdc, R2_WHITE);
-            DrawRectangle(hdc, g_LastDrawStartX, g_LastDrawStartY, g_LastDrawEndX, g_LastDrawEndY);
-            SetROP2(hdc, R2_COPYPEN);
-            SelectObject(hdc, g_RedBrush);
-            DrawRectangle(hdc, newX, newY, newX + width, newY + height);
-            ReleaseDC(hwnd, hdc);
-            g_LastDrawStartX = newX;
-            g_LastDrawStartY = newY;
-            g_LastDrawEndX = newX + width;
-            g_LastDrawEndY = newY + height;
-        }
-        break;
-
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        break;
-
-    default:
-        result = DefWindowProc(hwnd, uMsg, wParam, lParam);
-        break;
-    }
-
-    return result;
 }
